@@ -140,7 +140,7 @@ def generate_kalman_signal(prices, kalman_data):
     4. Prediction: One-step-ahead forecast
     
     Returns:
-        dict with action, score, and rationale
+        dict with action, score, rationale, and detailed calculation breakdown
     """
     if kalman_data is None:
         return None
@@ -150,60 +150,123 @@ def generate_kalman_signal(prices, kalman_data):
     prediction = kalman_data['prediction']
     prediction_std = kalman_data['prediction_std']
     
-    # Calculate signals
+    # Calculate signals with detailed breakdown
     score = 0
     signals = []
+    calculations = []  # Detailed calculation steps
     
     # 1. Trend Signal (±3 points)
     # Compare price to filtered trend
     price_vs_filter = (current_price - filtered.iloc[-1]) / filtered.iloc[-1] * 100
     
+    calculations.append("=" * 60)
+    calculations.append("KALMAN FILTER CALCULATION BREAKDOWN")
+    calculations.append("=" * 60)
+    calculations.append(f"\n1. TREND ANALYSIS (Max ±3 points)")
+    calculations.append(f"   Current Price: ${current_price:.2f}")
+    calculations.append(f"   Kalman Filtered Price: ${filtered.iloc[-1]:.2f}")
+    calculations.append(f"   Difference: ${current_price - filtered.iloc[-1]:.2f}")
+    calculations.append(f"   Percentage: {price_vs_filter:.2f}%")
+    calculations.append(f"   ")
+    
     if price_vs_filter > 2:
         score += 3
-        signals.append("Price above Kalman trend (+3)")
+        signals.append("Price significantly above Kalman trend (+3)")
+        calculations.append(f"   ✓ Price > Filtered by {price_vs_filter:.2f}% (>2%)")
+        calculations.append(f"   → Strong bullish trend: +3 points")
     elif price_vs_filter > 0.5:
         score += 2
-        signals.append("Price slightly above trend (+2)")
+        signals.append("Price above Kalman trend (+2)")
+        calculations.append(f"   ✓ Price > Filtered by {price_vs_filter:.2f}% (0.5-2%)")
+        calculations.append(f"   → Moderate bullish trend: +2 points")
     elif price_vs_filter < -2:
         score -= 3
-        signals.append("Price below Kalman trend (-3)")
+        signals.append("Price significantly below Kalman trend (-3)")
+        calculations.append(f"   ✓ Price < Filtered by {price_vs_filter:.2f}% (<-2%)")
+        calculations.append(f"   → Strong bearish trend: -3 points")
     elif price_vs_filter < -0.5:
         score -= 2
-        signals.append("Price slightly below trend (-2)")
+        signals.append("Price below Kalman trend (-2)")
+        calculations.append(f"   ✓ Price < Filtered by {price_vs_filter:.2f}% (-2% to -0.5%)")
+        calculations.append(f"   → Moderate bearish trend: -2 points")
     else:
-        signals.append("Price aligned with trend (0)")
+        signals.append("Price aligned with Kalman trend (0)")
+        calculations.append(f"   ✓ Price ≈ Filtered ({price_vs_filter:.2f}%)")
+        calculations.append(f"   → Neutral trend: 0 points")
     
     # 2. Momentum Signal (±2 points)
-    # Rate of change in Kalman filter
-    kalman_momentum = (filtered.iloc[-1] - filtered.iloc[-20]) / filtered.iloc[-20] * 100
+    # Rate of change in Kalman filter over 20 days
+    if len(filtered) >= 20:
+        kalman_momentum = (filtered.iloc[-1] - filtered.iloc[-20]) / filtered.iloc[-20] * 100
+    else:
+        kalman_momentum = 0
+    
+    calculations.append(f"\n2. MOMENTUM ANALYSIS (Max ±2 points)")
+    calculations.append(f"   Kalman Filtered 20 days ago: ${filtered.iloc[-20] if len(filtered) >= 20 else 'N/A':.2f}")
+    calculations.append(f"   Kalman Filtered now: ${filtered.iloc[-1]:.2f}")
+    calculations.append(f"   20-day change: {kalman_momentum:.2f}%")
+    calculations.append(f"   ")
     
     if kalman_momentum > 5:
         score += 2
         signals.append("Strong upward Kalman momentum (+2)")
+        calculations.append(f"   ✓ 20-day change > 5% ({kalman_momentum:.2f}%)")
+        calculations.append(f"   → Strong bullish momentum: +2 points")
     elif kalman_momentum > 2:
         score += 1
         signals.append("Moderate upward momentum (+1)")
+        calculations.append(f"   ✓ 20-day change > 2% ({kalman_momentum:.2f}%)")
+        calculations.append(f"   → Moderate bullish momentum: +1 point")
     elif kalman_momentum < -5:
         score -= 2
         signals.append("Strong downward Kalman momentum (-2)")
+        calculations.append(f"   ✓ 20-day change < -5% ({kalman_momentum:.2f}%)")
+        calculations.append(f"   → Strong bearish momentum: -2 points")
     elif kalman_momentum < -2:
         score -= 1
         signals.append("Moderate downward momentum (-1)")
+        calculations.append(f"   ✓ 20-day change < -2% ({kalman_momentum:.2f}%)")
+        calculations.append(f"   → Moderate bearish momentum: -1 point")
     else:
         signals.append("Neutral momentum (0)")
+        calculations.append(f"   ✓ 20-day change ≈ 0% ({kalman_momentum:.2f}%)")
+        calculations.append(f"   → Neutral momentum: 0 points")
     
     # 3. Prediction Signal (±1 point)
     # One-step-ahead forecast
     prediction_change = (prediction - current_price) / current_price * 100
     
+    calculations.append(f"\n3. PREDICTION ANALYSIS (Max ±1 point)")
+    calculations.append(f"   Current Price: ${current_price:.2f}")
+    calculations.append(f"   Kalman Next-Step Prediction: ${prediction:.2f}")
+    calculations.append(f"   Predicted Change: {prediction_change:.2f}%")
+    calculations.append(f"   Prediction Uncertainty: ±${prediction_std:.2f}")
+    calculations.append(f"   ")
+    
     if prediction_change > 1:
         score += 1
         signals.append("Kalman predicts upward move (+1)")
+        calculations.append(f"   ✓ Prediction > Price by {prediction_change:.2f}% (>1%)")
+        calculations.append(f"   → Bullish prediction: +1 point")
     elif prediction_change < -1:
         score -= 1
         signals.append("Kalman predicts downward move (-1)")
+        calculations.append(f"   ✓ Prediction < Price by {prediction_change:.2f}% (<-1%)")
+        calculations.append(f"   → Bearish prediction: -1 point")
     else:
         signals.append("Kalman predicts sideways (0)")
+        calculations.append(f"   ✓ Prediction ≈ Price ({prediction_change:.2f}%)")
+        calculations.append(f"   → Neutral prediction: 0 points")
+    
+    # Final score summary
+    calculations.append(f"\n" + "=" * 60)
+    calculations.append(f"FINAL KALMAN SCORE")
+    calculations.append(f"=" * 60)
+    calculations.append(f"Trend:      {'+3' if price_vs_filter > 2 else '+2' if price_vs_filter > 0.5 else '-3' if price_vs_filter < -2 else '-2' if price_vs_filter < -0.5 else '0'} points")
+    calculations.append(f"Momentum:   {'+2' if kalman_momentum > 5 else '+1' if kalman_momentum > 2 else '-2' if kalman_momentum < -5 else '-1' if kalman_momentum < -2 else '0'} points")
+    calculations.append(f"Prediction: {'+1' if prediction_change > 1 else '-1' if prediction_change < -1 else '0'} points")
+    calculations.append(f"───────────────")
+    calculations.append(f"Total Score: {score:+d} points")
     
     # Determine action
     if score >= 4:
@@ -217,9 +280,15 @@ def generate_kalman_signal(prices, kalman_data):
     else:
         action = "Hold"
     
+    calculations.append(f"\nAction: {action}")
+    
     # Calculate confidence based on prediction interval width
     confidence_width = prediction_std * 2
     confidence = max(20, min(100, 100 - (confidence_width / current_price * 100 * 10)))
+    
+    calculations.append(f"Confidence: {confidence:.0f}%")
+    calculations.append(f"  (Based on prediction uncertainty: ±${prediction_std:.2f})")
+    calculations.append("=" * 60)
     
     return {
         'action': action,
@@ -228,7 +297,15 @@ def generate_kalman_signal(prices, kalman_data):
         'signals': signals,
         'filtered_price': filtered.iloc[-1],
         'prediction': prediction,
-        'prediction_std': prediction_std
+        'prediction_std': prediction_std,
+        'calculations': calculations,  # Full breakdown
+        'metrics': {
+            'price_vs_filter': price_vs_filter,
+            'kalman_momentum': kalman_momentum,
+            'prediction_change': prediction_change,
+            'current_price': current_price,
+            'filtered_price': filtered.iloc[-1]
+        }
     }
 
 def calculate_support_resistance(prices, window=20):

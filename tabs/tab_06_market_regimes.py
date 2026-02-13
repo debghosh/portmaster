@@ -9,6 +9,13 @@ import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 import seaborn as sns
 from helper_functions import *
+from market_regime_advanced import (
+    download_sector_data, 
+    calculate_sector_rotation, 
+    detect_market_regime_advanced,
+    get_regime_characteristics,
+    SECTOR_ETFS
+)
 
 
 def render(tab6, portfolio_returns, prices, weights, tickers, metrics, current):
@@ -32,10 +39,47 @@ def render(tab6, portfolio_returns, prices, weights, tickers, metrics, current):
                 </div>
             """, unsafe_allow_html=True)
             
-            # Detect regimes
-            with st.spinner("Analyzing market regimes..."):
+            # Detect regimes with advanced analysis
+            with st.spinner("Analyzing market regimes with sector rotation..."):
+                # Get basic regimes first
                 regimes = detect_market_regimes(portfolio_returns, lookback=60)
                 regime_stats = analyze_regime_performance(portfolio_returns, regimes)
+                
+                # Download sector data for advanced analysis
+                try:
+                    if 'start_date' in current and 'end_date' in current:
+                        sector_prices = download_sector_data(current['start_date'], current['end_date'])
+                        
+                        if sector_prices is not None and not sector_prices.empty:
+                            # Get SPY prices from current data
+                            if 'SPY' in prices.columns:
+                                spy_prices = prices['SPY']
+                            else:
+                                # Download SPY if not in portfolio
+                                import yfinance as yf
+                                spy_data = yf.download('SPY', start=current['start_date'], 
+                                                      end=current['end_date'], progress=False, auto_adjust=True)
+                                spy_prices = spy_data['Close'] if 'Close' in spy_data.columns else spy_data
+                            
+                            # Calculate sector rotation
+                            sector_rotation = calculate_sector_rotation(sector_prices, spy_prices, lookback_days=60)
+                            
+                            # Advanced regime detection
+                            advanced_regime = detect_market_regime_advanced(
+                                prices.iloc[:, 0] if len(prices.columns) > 0 else spy_prices,
+                                portfolio_returns,
+                                sector_rotation=sector_rotation
+                            )
+                        else:
+                            sector_rotation = None
+                            advanced_regime = None
+                    else:
+                        sector_rotation = None
+                        advanced_regime = None
+                except Exception as e:
+                    st.warning(f"Could not load sector data for advanced analysis: {e}")
+                    sector_rotation = None
+                    advanced_regime = None
             
             # Show diagnostic info about data source
             if 'end_date' in current:
@@ -145,6 +189,126 @@ def render(tab6, portfolio_returns, prices, weights, tickers, metrics, current):
                 )
             
             st.caption(f"**Regime Logic:** Return={rolling_return_annual:.2%} ({'positive' if rolling_return_annual > 0.02 else 'negative' if rolling_return_annual < -0.02 else 'neutral'}) + Volatility={vol_status} → {current_regime}")
+            
+            # =============================================================================
+            # ADVANCED REGIME ANALYSIS WITH SECTOR ROTATION
+            # =============================================================================
+            
+            if advanced_regime and sector_rotation:
+                st.markdown("---")
+                st.markdown("### 🔄 Advanced Regime Analysis with Sector Rotation")
+                
+                st.success(f"""
+                **Enhanced Regime Detection:** {advanced_regime['regime']}  
+                **Confidence:** {advanced_regime['confidence']:.0%}  
+                **Transition Probability:** {advanced_regime['transition_probability']:.0%}
+                """)
+                
+                # Sector rotation signal
+                st.markdown("#### 📊 Sector Rotation Signal")
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Sector Signal", sector_rotation['signal'],
+                             help="Which sectors are leading the market")
+                
+                with col2:
+                    st.metric("Leading Sector", 
+                             f"{SECTOR_ETFS.get(sector_rotation['top_sector'], sector_rotation['top_sector'])} ({sector_rotation['top_sector']})",
+                             help="Best performing sector vs SPY")
+                
+                with col3:
+                    st.metric("Lagging Sector",
+                             f"{SECTOR_ETFS.get(sector_rotation['bottom_sector'], sector_rotation['bottom_sector'])} ({sector_rotation['bottom_sector']})",
+                             help="Worst performing sector vs SPY")
+                
+                # Interpretation
+                rotation_signal = sector_rotation['signal']
+                
+                if rotation_signal == "DEFENSIVE":
+                    st.warning("""
+                    **⚠️ DEFENSIVE ROTATION DETECTED**
+                    
+                    Consumer Staples, Utilities, and Healthcare are outperforming. This often signals:
+                    - Late cycle conditions
+                    - Possible bear market approaching
+                    - Risk-off sentiment
+                    
+                    **Action:** Consider reducing cyclical exposure, adding defensive positions.
+                    """)
+                elif rotation_signal == "CYCLICAL":
+                    st.success("""
+                    **✅ CYCLICAL ROTATION DETECTED**
+                    
+                    Industrials, Financials, and Consumer Discretionary are outperforming. This often signals:
+                    - Early/mid cycle conditions
+                    - Economic expansion
+                    - Risk-on sentiment
+                    
+                    **Action:** Maintain or increase cyclical exposure.
+                    """)
+                elif rotation_signal == "GROWTH":
+                    st.info("""
+                    **📈 GROWTH ROTATION DETECTED**
+                    
+                    Technology and Communication Services are outperforming. This often signals:
+                    - Mid-cycle bull market
+                    - Strong momentum
+                    - Innovation leadership
+                    
+                    **Action:** Growth stocks favorable, but monitor for overvaluation.
+                    """)
+                else:
+                    st.info("""
+                    **➡️ MIXED ROTATION**
+                    
+                    No clear sector leadership. This can signal:
+                    - Transition period
+                    - Market uncertainty
+                    - Sector-specific stories vs macro themes
+                    
+                    **Action:** Stock selection more important than sector allocation.
+                    """)
+                
+                # Regime transition warning
+                if advanced_regime['transition_probability'] > 0.3:
+                    st.warning(f"""
+                    **🚨 REGIME TRANSITION WARNING**
+                    
+                    Current regime confidence is only {advanced_regime['confidence']:.0%} with {advanced_regime['transition_probability']:.0%} 
+                    probability of regime change. 
+                    
+                    **Watch for:**
+                    - Continued sector rotation away from current leaders
+                    - Volatility changes
+                    - Breakdown of key technical levels
+                    """)
+                
+                # Regime characteristics
+                with st.expander("📋 Regime Characteristics & Historical Patterns"):
+                    characteristics = get_regime_characteristics(advanced_regime['regime'])
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.markdown(f"**Description:** {characteristics['description']}")
+                        st.markdown(f"**Typical Duration:** {characteristics['typical_duration']}")
+                        st.markdown(f"**Risk Level:** {characteristics['risk']}")
+                        st.markdown(f"**Recommended Allocation:** {characteristics['allocation']}")
+                    
+                    with col2:
+                        st.markdown("**Best Performing Sectors:**")
+                        for sector in characteristics['best_sectors']:
+                            st.markdown(f"- {sector}")
+                        
+                        st.markdown("**Worst Performing Sectors:**")
+                        for sector in characteristics['worst_sectors']:
+                            st.markdown(f"- {sector}")
+                    
+                    st.markdown("**Warning Signs to Watch:**")
+                    for warning in characteristics['warning_signs']:
+                        st.markdown(f"- {warning}")
             
             # Regime Timeline
             st.markdown("---")

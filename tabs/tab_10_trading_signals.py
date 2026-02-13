@@ -123,6 +123,22 @@ def render(tab10, portfolio_returns, prices, weights, tickers, metrics, current)
                                 
                                 st.markdown(f":{k_color}[{k_emoji} **{k_short}** (Score: {k_score:+d})]")
                                 st.caption(f"Confidence: {k_conf:.0f}%")
+                                
+                                # Add calculation breakdown button/expander
+                                if 'calculations' in kalman_signal:
+                                    with st.expander("📐 See Kalman Calculation", expanded=False):
+                                        st.markdown("**How This Score Was Calculated:**")
+                                        st.code('\n'.join(kalman_signal['calculations']), language='text')
+                                        
+                                        # Show key metrics
+                                        if 'metrics' in kalman_signal:
+                                            metrics = kalman_signal['metrics']
+                                            st.markdown("**Key Metrics:**")
+                                            st.markdown(f"- Current Price: ${metrics.get('current_price', 0):.2f}")
+                                            st.markdown(f"- Filtered Price: ${metrics.get('filtered_price', 0):.2f}")
+                                            st.markdown(f"- Price vs Filter: {metrics.get('price_vs_filter', 0):.2f}%")
+                                            st.markdown(f"- 20-Day Momentum: {metrics.get('kalman_momentum', 0):.2f}%")
+                                            st.markdown(f"- Predicted Change: {metrics.get('prediction_change', 0):.2f}%")
                             else:
                                 st.markdown("*Not available*")
                                 st.caption("Need 100+ days data")

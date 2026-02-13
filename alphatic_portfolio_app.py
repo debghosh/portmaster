@@ -45,7 +45,8 @@ from tabs import (
     tab_08_compare_benchmarks,
     tab_09_optimization,
     tab_10_trading_signals,
-    tab_11_technical_charts
+    tab_11_technical_charts,
+    tab_12_sector_analysis
 )
 
 
@@ -329,7 +330,7 @@ st.markdown('<p class="tagline">Sophisticated analysis for the educated investor
 # TABS STRUCTURE  
 # =============================================================================
 
-tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
+tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
     "📚 Portfolio Education",
     "📊 Overview",
     "📈 Detailed Analysis",
@@ -341,7 +342,8 @@ tab0, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.ta
     "⚖️ Compare Benchmarks",
     "🎯 Optimization",
     "📡 Trading Signals",
-    "📉 Technical Charts"
+    "📉 Technical Charts",
+    "📊 Sector Analysis"
 ])
 
 # =============================================================================
@@ -447,6 +449,7 @@ else:
     tab_09_optimization.render(tab9, portfolio_returns, prices, weights, tickers, metrics, current)
     tab_10_trading_signals.render(tab10, portfolio_returns, prices, weights, tickers, metrics, current)
     tab_11_technical_charts.render(tab11, portfolio_returns, prices, weights, tickers, metrics, current)
+    tab_12_sector_analysis.render(tab12)
 
 # =============================================================================
 # FOOTER
