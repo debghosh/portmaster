@@ -343,56 +343,66 @@ def render(tab1, portfolio_returns, prices, weights, tickers, metrics, current):
             with col1:
                 st.markdown("### 🌡️ Market Temperature")
                 
-                # Detect current market regime
-                first_ticker = list(weights.keys())[0]
-                if first_ticker in prices.columns:
-                    ticker_prices = prices[first_ticker]
-                    ticker_returns = ticker_prices.pct_change().dropna()
-                    
-                    # Calculate market metrics
-                    recent_20d_return = (ticker_prices.iloc[-1] / ticker_prices.iloc[-20] - 1) * 100 if len(ticker_prices) >= 20 else 0
-                    recent_60d_return = (ticker_prices.iloc[-1] / ticker_prices.iloc[-60] - 1) * 100 if len(ticker_prices) >= 60 else 0
-                    vol_60d = ticker_returns.tail(60).std() * np.sqrt(252)
-                    
-                    # Determine temperature
-                    if vol_60d > 0.35:
-                        temp = "🔥 TOO HOT"
-                        temp_desc = "Market Crisis / Panic"
-                        temp_color = "#dc3545"
-                        advice = "Step back from the stove. Don't add ingredients. Wait for market to cool."
-                    elif recent_60d_return < -10 and vol_60d > 0.25:
-                        temp = "❄️ COLD"
-                        temp_desc = "Bear Market"
-                        temp_color = "#6c757d"
-                        advice = "Market cooling down. Prepare ingredients (build cash), wait for the right moment to add."
-                    elif recent_60d_return > 15 and vol_60d < 0.20:
-                        temp = "🌡️ WARM & STEADY"
-                        temp_desc = "Bull Market"
-                        temp_color = "#28a745"
-                        advice = "Perfect cooking temperature! Keep adding ingredients (accumulate positions)."
-                    elif recent_20d_return > 0:
-                        temp = "🌤️ WARMING UP"
-                        temp_desc = "Recovery"
-                        temp_color = "#fd7e14"
-                        advice = "Market heating up. Good time to start adding ingredients gradually."
-                    else:
-                        temp = "😐 LUKEWARM"
-                        temp_desc = "Sideways / Choppy"
-                        temp_color = "#ffc107"
-                        advice = "Market temperature uncertain. Hold current recipe, wait for clearer signals."
-                    
-                    st.markdown(f"""
-                        <div style="background: {temp_color}; color: white; padding: 1.5rem; border-radius: 10px; margin-bottom: 1rem;">
-                            <h2 style="margin: 0; font-size: 2rem;">{temp}</h2>
-                            <h4 style="margin: 0.5rem 0; opacity: 0.9;">{temp_desc}</h4>
-                            <p style="margin: 0.5rem 0; font-size: 0.9rem;">
-                                20-day: {recent_20d_return:+.1f}% | 60-day: {recent_60d_return:+.1f}%<br>
-                                Volatility: {vol_60d*100:.1f}%
-                            </p>
-                        </div>
-                    """, unsafe_allow_html=True)
-                    
-                    st.info(f"**👨‍🍳 Chef's Advice:** {advice}")
+                # Use EXACT same logic as Market Regimes tab for 100% consistency
+                lookback = 60
+                rolling_return_annual = portfolio_returns.tail(lookback).mean() * 252  # Annualized
+                rolling_vol_annual = portfolio_returns.tail(lookback).std() * np.sqrt(252)  # Annualized
+                
+                # Calculate median volatility from full history (same as Market Regimes)
+                all_vol = portfolio_returns.rolling(lookback).std() * np.sqrt(252)
+                vol_median = all_vol.median()
+                
+                # EXACT same classification as Market Regimes tab
+                return_positive = rolling_return_annual > 0.02  # Above 2% annualized
+                return_negative = rolling_return_annual < -0.02  # Below -2% annualized
+                vol_high = rolling_vol_annual > vol_median
+                
+                # Determine temperature using EXACT same logic
+                if return_positive and not vol_high:
+                    temp = "🌡️ WARM & STEADY"
+                    temp_desc = "Bull Market (Low Vol)"
+                    temp_color = "#28a745"
+                    advice = "Perfect cooking temperature! Keep adding ingredients (accumulate positions)."
+                elif return_positive and vol_high:
+                    temp = "🔥 HOT & VOLATILE"
+                    temp_desc = "Bull Market (High Vol)"
+                    temp_color = "#fd7e14"
+                    advice = "Market hot but bumpy. Good overall but expect swings. Stay invested but buckle up."
+                elif return_negative and vol_high:
+                    temp = "🔥 TOO HOT"
+                    temp_desc = "Bear Market (High Vol)"
+                    temp_color = "#dc3545"
+                    advice = "Crisis mode! Step back from the stove. Don't add ingredients. Wait for market to cool."
+                elif return_negative and not vol_high:
+                    temp = "❄️ COLD"
+                    temp_desc = "Bear Market (Low Vol)"
+                    temp_color = "#6c757d"
+                    advice = "Market cooling down. Prepare ingredients (build cash), wait for the right moment to add."
+                else:
+                    temp = "😐 LUKEWARM"
+                    temp_desc = "Sideways / Choppy"
+                    temp_color = "#ffc107"
+                    advice = "Market temperature uncertain. Hold current recipe, wait for clearer signals."
+                
+                # Calculate display metrics
+                recent_20d_return = (portfolio_returns.tail(20).mean() * 252) * 100  # Annualized %
+                recent_60d_return = rolling_return_annual * 100  # Already annualized
+                
+                st.markdown(f"""
+                    <div style="background: {temp_color}; color: white; padding: 1.5rem; border-radius: 10px; margin-bottom: 1rem;">
+                        <h2 style="margin: 0; font-size: 2rem;">{temp}</h2>
+                        <h4 style="margin: 0.5rem 0; opacity: 0.9;">{temp_desc}</h4>
+                        <p style="margin: 0.5rem 0; font-size: 0.9rem;">
+                            60-day Return (Annual): {recent_60d_return:+.1f}%<br>
+                            Volatility (Annual): {rolling_vol_annual*100:.1f}% (Median: {vol_median*100:.1f}%)
+                        </p>
+                        <p style="margin: 0.5rem 0; font-size: 0.8rem; opacity: 0.8;">
+                            ✅ 100% aligned with Market Regimes tab (same thresholds)
+                        </p>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                st.info(f"**👨‍🍳 Chef's Advice:** {advice}")
             
             with col2:
                 st.markdown("### 📋 Shopping List")

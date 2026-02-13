@@ -160,35 +160,36 @@ def render(tab6, portfolio_returns, prices, weights, tickers, metrics, current):
             with col1:
                 st.metric(
                     "Rolling Return (Annual)", 
-                    f"{rolling_return_annual:.2%}",
+                    f"{rolling_return_annual:.2%}" if not pd.isna(rolling_return_annual) else "N/A",
                     help="Average return over last 60 days, annualized. >2% = Bull, <-2% = Bear"
                 )
             
             with col2:
                 st.metric(
                     "Rolling Volatility (Annual)", 
-                    f"{rolling_vol_annual:.2%}",
-                    help=f"Volatility over last 60 days, annualized. Median: {vol_median:.2%}"
+                    f"{rolling_vol_annual:.2%}" if not pd.isna(rolling_vol_annual) else "N/A",
+                    help=f"Volatility over last 60 days, annualized. Median: {vol_median:.2%}" if not pd.isna(vol_median) else "Volatility over last 60 days"
                 )
             
             with col3:
                 vol_status = "High" if rolling_vol_annual > vol_median else "Low"
                 st.metric(
                     "Volatility Level",
-                    vol_status,
-                    help=f"Compared to historical median ({vol_median:.2%})"
+                    vol_status if not pd.isna(rolling_vol_annual) and not pd.isna(vol_median) else "N/A",
+                    help=f"Compared to historical median ({vol_median:.2%})" if not pd.isna(vol_median) else "Compared to historical median"
                 )
             
             with col4:
                 # Calculate Sharpe ratio for last 60 days
-                sharpe_60d = (rolling_return_annual - 0.02) / rolling_vol_annual if rolling_vol_annual > 0 else 0
+                sharpe_60d = (rolling_return_annual - 0.02) / rolling_vol_annual if rolling_vol_annual > 0 and not pd.isna(rolling_vol_annual) and not pd.isna(rolling_return_annual) else 0
                 st.metric(
                     "Sharpe Ratio (60d)",
-                    f"{sharpe_60d:.2f}",
+                    f"{sharpe_60d:.2f}" if not pd.isna(sharpe_60d) and sharpe_60d != 0 else "N/A",
                     help="Risk-adjusted return. >1 is good, >2 is excellent"
                 )
             
-            st.caption(f"**Regime Logic:** Return={rolling_return_annual:.2%} ({'positive' if rolling_return_annual > 0.02 else 'negative' if rolling_return_annual < -0.02 else 'neutral'}) + Volatility={vol_status} → {current_regime}")
+            status_text = 'positive' if rolling_return_annual > 0.02 else 'negative' if rolling_return_annual < -0.02 else 'neutral'
+            st.caption(f"**Regime Logic:** Return={rolling_return_annual:.2%} ({status_text}) + Volatility={vol_status} → {current_regime}")
             
             # =============================================================================
             # ADVANCED REGIME ANALYSIS WITH SECTOR ROTATION
@@ -210,18 +211,26 @@ def render(tab6, portfolio_returns, prices, weights, tickers, metrics, current):
                 col1, col2, col3 = st.columns(3)
                 
                 with col1:
-                    st.metric("Sector Signal", sector_rotation['signal'],
+                    st.metric("Sector Signal", sector_rotation['signal'] if sector_rotation['signal'] else "N/A",
                              help="Which sectors are leading the market")
                 
                 with col2:
-                    st.metric("Leading Sector", 
-                             f"{SECTOR_ETFS.get(sector_rotation['top_sector'], sector_rotation['top_sector'])} ({sector_rotation['top_sector']})",
-                             help="Best performing sector vs SPY")
+                    top_sector = sector_rotation.get('top_sector')
+                    if top_sector and top_sector in SECTOR_ETFS:
+                        st.metric("Leading Sector", 
+                                 f"{SECTOR_ETFS.get(top_sector, top_sector)} ({top_sector})",
+                                 help="Best performing sector vs SPY")
+                    else:
+                        st.metric("Leading Sector", "N/A", help="Best performing sector vs SPY")
                 
                 with col3:
-                    st.metric("Lagging Sector",
-                             f"{SECTOR_ETFS.get(sector_rotation['bottom_sector'], sector_rotation['bottom_sector'])} ({sector_rotation['bottom_sector']})",
-                             help="Worst performing sector vs SPY")
+                    bottom_sector = sector_rotation.get('bottom_sector')
+                    if bottom_sector and bottom_sector in SECTOR_ETFS:
+                        st.metric("Lagging Sector",
+                                 f"{SECTOR_ETFS.get(bottom_sector, bottom_sector)} ({bottom_sector})",
+                                 help="Worst performing sector vs SPY")
+                    else:
+                        st.metric("Lagging Sector", "N/A", help="Worst performing sector vs SPY")
                 
                 # Interpretation
                 rotation_signal = sector_rotation['signal']

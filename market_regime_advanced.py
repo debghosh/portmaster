@@ -80,47 +80,68 @@ def calculate_sector_rotation(sector_prices, spy_prices, lookback_days=60):
         lookback_days: Period for rotation analysis
         
     Returns:
-        dict with rotation metrics
+        dict with rotation metrics (None if insufficient data)
     """
     if sector_prices is None or sector_prices.empty:
         return None
     
-    # Calculate returns
-    sector_returns = sector_prices.pct_change(lookback_days).iloc[-1]
-    spy_return = spy_prices.pct_change(lookback_days).iloc[-1]
+    if spy_prices is None or len(spy_prices) < lookback_days:
+        return None
     
-    # Relative strength vs SPY
-    relative_strength = sector_returns - spy_return
-    
-    # Classify sectors
-    defensive_perf = relative_strength[DEFENSIVE_SECTORS].mean()
-    cyclical_perf = relative_strength[CYCLICAL_SECTORS].mean()
-    growth_perf = relative_strength[GROWTH_SECTORS].mean()
-    
-    # Determine rotation signal
-    if defensive_perf > cyclical_perf and defensive_perf > growth_perf:
-        rotation_signal = "DEFENSIVE"
-        rotation_strength = defensive_perf
-    elif cyclical_perf > defensive_perf and cyclical_perf > growth_perf:
-        rotation_signal = "CYCLICAL"
-        rotation_strength = cyclical_perf
-    elif growth_perf > 0:
-        rotation_signal = "GROWTH"
-        rotation_strength = growth_perf
-    else:
-        rotation_signal = "MIXED"
-        rotation_strength = 0
-    
-    return {
-        'signal': rotation_signal,
-        'strength': rotation_strength,
-        'defensive_perf': defensive_perf,
-        'cyclical_perf': cyclical_perf,
-        'growth_perf': growth_perf,
-        'sector_returns': relative_strength.to_dict(),
-        'top_sector': relative_strength.idxmax(),
-        'bottom_sector': relative_strength.idxmin()
-    }
+    try:
+        # Calculate returns with NaN handling
+        sector_returns = sector_prices.pct_change(lookback_days).iloc[-1]
+        spy_return = spy_prices.pct_change(lookback_days).iloc[-1]
+        
+        # Check for NaN values
+        if pd.isna(spy_return):
+            return None
+        
+        # Drop sectors with NaN returns
+        sector_returns = sector_returns.dropna()
+        
+        if sector_returns.empty:
+            return None
+        
+        # Relative strength vs SPY
+        relative_strength = sector_returns - spy_return
+        
+        # Classify sectors (handle missing sectors gracefully)
+        available_defensive = [s for s in DEFENSIVE_SECTORS if s in relative_strength.index]
+        available_cyclical = [s for s in CYCLICAL_SECTORS if s in relative_strength.index]
+        available_growth = [s for s in GROWTH_SECTORS if s in relative_strength.index]
+        
+        defensive_perf = relative_strength[available_defensive].mean() if available_defensive else 0
+        cyclical_perf = relative_strength[available_cyclical].mean() if available_cyclical else 0
+        growth_perf = relative_strength[available_growth].mean() if available_growth else 0
+        
+        # Determine rotation signal
+        if defensive_perf > cyclical_perf and defensive_perf > growth_perf:
+            rotation_signal = "DEFENSIVE"
+            rotation_strength = defensive_perf
+        elif cyclical_perf > defensive_perf and cyclical_perf > growth_perf:
+            rotation_signal = "CYCLICAL"
+            rotation_strength = cyclical_perf
+        elif growth_perf > 0:
+            rotation_signal = "GROWTH"
+            rotation_strength = growth_perf
+        else:
+            rotation_signal = "MIXED"
+            rotation_strength = 0
+        
+        return {
+            'signal': rotation_signal,
+            'strength': rotation_strength,
+            'defensive_perf': defensive_perf,
+            'cyclical_perf': cyclical_perf,
+            'growth_perf': growth_perf,
+            'sector_returns': relative_strength.to_dict(),
+            'top_sector': relative_strength.idxmax() if not relative_strength.empty else None,
+            'bottom_sector': relative_strength.idxmin() if not relative_strength.empty else None
+        }
+    except Exception as e:
+        print(f"Error calculating sector rotation: {e}")
+        return None
 
 
 def detect_market_regime_advanced(prices, returns, vix_level=None, sector_rotation=None):

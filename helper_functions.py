@@ -534,6 +534,15 @@ def generate_trading_signal(prices, ticker=None):
     # DETERMINE SIGNAL BASED ON SCORE
     # =============================================================================
     
+    # Score ranges with clear distinctions:
+    # Strong Buy: +4 to +6  (very bullish)
+    # Buy: +2 to +3.9       (bullish)
+    # Hold (Bullish): +0.5 to +1.9  (slightly positive lean)
+    # Hold: -0.4 to +0.4    (truly neutral)
+    # Hold (Bearish): -1.9 to -0.5  (slightly negative lean)
+    # Sell: -3.9 to -2      (bearish)
+    # Strong Sell: -6 to -4 (very bearish)
+    
     if total_score >= 4:
         signal = "STRONG BUY"
         action = "Accumulate"
@@ -543,6 +552,7 @@ def generate_trading_signal(prices, ticker=None):
     elif total_score >= 0.5:
         signal = "HOLD (Bullish)"
         action = "Hold"
+        signal_explanation = "Slightly positive signals but not strong enough for buy. Lean bullish."
     elif total_score <= -4:
         signal = "STRONG SELL"
         action = "Distribute"
@@ -552,9 +562,11 @@ def generate_trading_signal(prices, ticker=None):
     elif total_score <= -0.5:
         signal = "HOLD (Bearish)"
         action = "Hold"
+        signal_explanation = "Slightly negative signals but not strong enough for sell. Lean bearish."
     else:
         signal = "HOLD"
         action = "Hold"
+        signal_explanation = "Truly neutral - no directional bias. Wait for clearer signals."
     
     # =============================================================================
     # CALCULATE CONFIDENCE (0-100%)
@@ -607,23 +619,56 @@ def generate_trading_signal(prices, ticker=None):
                 kalman_signal = generate_kalman_signal(prices, kalman_data)
                 
                 if kalman_signal:
-                    # Normalize actions for comparison
-                    sma_action = action.upper()
-                    kalman_action = kalman_signal['action'].upper()
+                    # Use SIGNAL (not action) for comparison
+                    # SMA signal: "STRONG BUY", "BUY", "HOLD (Bullish)", "HOLD", "HOLD (Bearish)", "SELL", "STRONG SELL"
+                    # Kalman action: "Strong Buy", "Buy", "Hold", "Sell", "Strong Sell"
                     
-                    # Check if signals agree
-                    sma_is_bullish = 'BUY' in sma_action or (sma_action == 'HOLD' and total_score > 0)
-                    sma_is_bearish = 'SELL' in sma_action or (sma_action == 'HOLD' and total_score < 0)
-                    kalman_is_bullish = 'BUY' in kalman_action
-                    kalman_is_bearish = 'SELL' in kalman_action
+                    sma_signal_upper = signal.upper()
+                    kalman_action_upper = kalman_signal['action'].upper()
                     
-                    if (sma_is_bullish and kalman_is_bullish) or (sma_is_bearish and kalman_is_bearish):
+                    # Simplified signal categories for agreement detection
+                    # BUY = "STRONG BUY" or "BUY"
+                    # SELL = "STRONG SELL" or "SELL"  
+                    # HOLD = "HOLD" or "HOLD (Bullish)" or "HOLD (Bearish)"
+                    
+                    sma_category = None
+                    if 'BUY' in sma_signal_upper and 'HOLD' not in sma_signal_upper:
+                        # "STRONG BUY" or "BUY", but NOT "HOLD (Bullish)"
+                        sma_category = 'BUY'
+                    elif 'SELL' in sma_signal_upper and 'HOLD' not in sma_signal_upper:
+                        # "STRONG SELL" or "SELL", but NOT "HOLD (Bearish)"
+                        sma_category = 'SELL'
+                    else:
+                        # "HOLD", "HOLD (Bullish)", "HOLD (Bearish)"
+                        sma_category = 'HOLD'
+                    
+                    kalman_category = None
+                    if 'BUY' in kalman_action_upper:
+                        # "Strong Buy" or "Buy"
+                        kalman_category = 'BUY'
+                    elif 'SELL' in kalman_action_upper:
+                        # "Strong Sell" or "Sell"
+                        kalman_category = 'SELL'
+                    else:
+                        # "Hold"
+                        kalman_category = 'HOLD'
+                    
+                    # Agreement logic:
+                    # ALIGNED: Both signals in same category (Buy+Buy, Sell+Sell, Hold+Hold)
+                    # CONFLICT: Opposite signals (Buy+Sell or Sell+Buy)
+                    # MIXED: One signal is Hold, other is Buy/Sell
+                    
+                    if sma_category == kalman_category:
+                        # Both same category = ALIGNED
                         kalman_agreement = "✅ ALIGNED"
                         signal_conflict = False
-                    elif (sma_is_bullish and kalman_is_bearish) or (sma_is_bearish and kalman_is_bullish):
+                    elif (sma_category == 'BUY' and kalman_category == 'SELL') or \
+                         (sma_category == 'SELL' and kalman_category == 'BUY'):
+                        # Opposite directions = CONFLICT
                         kalman_agreement = "⚠️ CONFLICT"
                         signal_conflict = True
                     else:
+                        # One Hold, one Buy/Sell = MIXED (not aligned but not conflicting)
                         kalman_agreement = "⚪ MIXED"
                         signal_conflict = False
                     

@@ -69,7 +69,7 @@ def render(tab10, portfolio_returns, prices, weights, tickers, metrics, current)
                     with st.expander(f"**{ticker}** ({weight:.1f}% of portfolio) - ${current_price:.2f}", expanded=True):
                         
                         # Top row: Signals comparison
-                        col1, col2, col3 = st.columns([2, 2, 3])
+                        col1, col2, col3 = st.columns([3, 2, 3])  # Give col1 and col3 more space
                         
                         with col1:
                             st.markdown("**📊 SMA Signal**")
@@ -91,6 +91,22 @@ def render(tab10, portfolio_returns, prices, weights, tickers, metrics, current)
                             
                             st.markdown(f":{color}[{emoji} **{sma_action}** (Score: {sma_score:+.1f})]")
                             st.caption(f"Confidence: {confidence:.0f}%")
+                            
+                            # Move Kalman calculation breakdown HERE (col1 has more space)
+                            if kalman_signal and 'calculations' in kalman_signal:
+                                with st.expander("📐 See Kalman Calculation Details", expanded=False):
+                                    st.markdown("**How the Kalman Score Was Calculated:**")
+                                    st.code('\n'.join(kalman_signal['calculations']), language='text')
+                                    
+                                    # Show key metrics
+                                    if 'metrics' in kalman_signal:
+                                        metrics_k = kalman_signal['metrics']
+                                        st.markdown("**Key Metrics:**")
+                                        st.markdown(f"- Current Price: ${metrics_k.get('current_price', 0):.2f}")
+                                        st.markdown(f"- Filtered Price: ${metrics_k.get('filtered_price', 0):.2f}")
+                                        st.markdown(f"- Price vs Filter: {metrics_k.get('price_vs_filter', 0):.2f}%")
+                                        st.markdown(f"- 20-Day Momentum: {metrics_k.get('kalman_momentum', 0):.2f}%")
+                                        st.markdown(f"- Predicted Change: {metrics_k.get('prediction_change', 0):.2f}%")
                         
                         with col2:
                             st.markdown("**🔬 Kalman Signal**")
@@ -123,22 +139,6 @@ def render(tab10, portfolio_returns, prices, weights, tickers, metrics, current)
                                 
                                 st.markdown(f":{k_color}[{k_emoji} **{k_short}** (Score: {k_score:+d})]")
                                 st.caption(f"Confidence: {k_conf:.0f}%")
-                                
-                                # Add calculation breakdown button/expander
-                                if 'calculations' in kalman_signal:
-                                    with st.expander("📐 See Kalman Calculation", expanded=False):
-                                        st.markdown("**How This Score Was Calculated:**")
-                                        st.code('\n'.join(kalman_signal['calculations']), language='text')
-                                        
-                                        # Show key metrics
-                                        if 'metrics' in kalman_signal:
-                                            metrics = kalman_signal['metrics']
-                                            st.markdown("**Key Metrics:**")
-                                            st.markdown(f"- Current Price: ${metrics.get('current_price', 0):.2f}")
-                                            st.markdown(f"- Filtered Price: ${metrics.get('filtered_price', 0):.2f}")
-                                            st.markdown(f"- Price vs Filter: {metrics.get('price_vs_filter', 0):.2f}%")
-                                            st.markdown(f"- 20-Day Momentum: {metrics.get('kalman_momentum', 0):.2f}%")
-                                            st.markdown(f"- Predicted Change: {metrics.get('prediction_change', 0):.2f}%")
                             else:
                                 st.markdown("*Not available*")
                                 st.caption("Need 100+ days data")
@@ -694,9 +694,21 @@ def render(tab10, portfolio_returns, prices, weights, tickers, metrics, current)
                 
                 st.markdown("""
                 **Agreement Column:**
-                - ✅ **ALIGNED** = Both signals agree → **HIGH CONFIDENCE** → Best trades
-                - ⚠️ **CONFLICT** = Signals disagree → **CAUTION** → Wait for clarity
-                - ⚪ **MIXED** = Partial agreement → **LOWER CONVICTION** → Monitor
+                - ✅ **ALIGNED** = Both signals same category (Buy+Buy, Sell+Sell, Hold+Hold) → **HIGH CONFIDENCE**
+                - ⚠️ **CONFLICT** = Opposite signals (Buy+Sell or Sell+Buy) → **DANGER - Don't trade**
+                - ⚪ **MIXED** = One Hold, other Buy/Sell (e.g., Hold vs Buy) → **LOWER CONVICTION**
+                
+                **Important:** 
+                - "Hold (Bullish)" + "Buy" = MIXED (not aligned - different strength)
+                - "Hold" + "Buy" = MIXED (one says wait, one says go)
+                - Only "Buy" + "Buy" or "Sell" + "Sell" or "Hold" + "Hold" = ALIGNED
+                
+                **Understanding Hold Signals:**
+                - **Hold (Bullish):** Score +0.5 to +1.9 → Slightly positive lean but not strong enough to buy
+                - **Hold:** Score -0.4 to +0.4 → Truly neutral, no directional bias
+                - **Hold (Bearish):** Score -1.9 to -0.5 → Slightly negative lean but not strong enough to sell
+                
+                Think of it as: "Bullish/Bearish with low conviction - acknowledge the lean but wait for confirmation"
                 
                 **💡 Pro Tip:** Focus on ✅ ALIGNED signals with high scores (±4) for best risk/reward trades.
                 """)
