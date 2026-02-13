@@ -27,6 +27,15 @@ from scipy import stats
 import warnings
 warnings.filterwarnings('ignore')
 
+# Kalman filter for advanced signal detection
+try:
+    from pykalman import KalmanFilter
+    KALMAN_AVAILABLE = True
+except ImportError:
+    KALMAN_AVAILABLE = False
+    print("⚠️ pykalman not available. Install with: pip install pykalman")
+    print("   Kalman filter signals will be disabled.")
+
 
 # =============================================================================
 # TECHNICAL ANALYSIS FUNCTIONS (AlphaPy-Inspired)
@@ -61,6 +70,166 @@ def calculate_bollinger_bands(prices, period=20, std_dev=2):
 def calculate_sma(prices, period):
     """Calculate Simple Moving Average"""
     return prices.rolling(window=period).mean()
+
+def calculate_kalman_filter(prices):
+    """
+    Apply Kalman Filter for superior noise reduction and trend detection
+    
+    Kalman Filter is a recursive algorithm that:
+    - Estimates the true underlying price by filtering out noise
+    - Provides predictions with confidence intervals
+    - Adapts to changing market conditions
+    - Superior to SMA for trend detection
+    
+    Returns:
+        dict with filtered prices, predictions, and trading signal
+    """
+    if not KALMAN_AVAILABLE:
+        return None
+    
+    try:
+        # Convert prices to numpy array
+        observations = np.array(prices).reshape(-1, 1)
+        
+        # Initialize Kalman Filter
+        # Transition matrix: assumes price follows random walk with drift
+        kf = KalmanFilter(
+            transition_matrices=[1],
+            observation_matrices=[1],
+            initial_state_mean=observations[0],
+            initial_state_covariance=1,
+            observation_covariance=1,
+            transition_covariance=0.01
+        )
+        
+        # Apply filter
+        state_means, state_covs = kf.filter(observations)
+        
+        # Get filtered prices and predictions
+        filtered_prices = state_means.flatten()
+        
+        # Calculate prediction (one step ahead)
+        next_state_mean, next_state_cov = kf.filter_update(
+            state_means[-1], state_covs[-1], observations[-1]
+        )
+        
+        # Calculate confidence intervals (2 standard deviations)
+        std_dev = np.sqrt(state_covs.flatten())
+        upper_band = filtered_prices + 2 * std_dev
+        lower_band = filtered_prices - 2 * std_dev
+        
+        return {
+            'filtered': pd.Series(filtered_prices, index=prices.index),
+            'upper_band': pd.Series(upper_band, index=prices.index),
+            'lower_band': pd.Series(lower_band, index=prices.index),
+            'prediction': float(next_state_mean),
+            'prediction_std': float(np.sqrt(next_state_cov))
+        }
+    except Exception as e:
+        st.warning(f"Kalman filter calculation failed: {str(e)}")
+        return None
+
+def generate_kalman_signal(prices, kalman_data):
+    """
+    Generate trading signal from Kalman filter
+    
+    Signal Logic:
+    1. Trend: Compare current price to Kalman filtered trend
+    2. Momentum: Rate of change in Kalman filter
+    3. Confidence: Width of prediction interval
+    4. Prediction: One-step-ahead forecast
+    
+    Returns:
+        dict with action, score, and rationale
+    """
+    if kalman_data is None:
+        return None
+    
+    current_price = prices.iloc[-1]
+    filtered = kalman_data['filtered']
+    prediction = kalman_data['prediction']
+    prediction_std = kalman_data['prediction_std']
+    
+    # Calculate signals
+    score = 0
+    signals = []
+    
+    # 1. Trend Signal (±3 points)
+    # Compare price to filtered trend
+    price_vs_filter = (current_price - filtered.iloc[-1]) / filtered.iloc[-1] * 100
+    
+    if price_vs_filter > 2:
+        score += 3
+        signals.append("Price above Kalman trend (+3)")
+    elif price_vs_filter > 0.5:
+        score += 2
+        signals.append("Price slightly above trend (+2)")
+    elif price_vs_filter < -2:
+        score -= 3
+        signals.append("Price below Kalman trend (-3)")
+    elif price_vs_filter < -0.5:
+        score -= 2
+        signals.append("Price slightly below trend (-2)")
+    else:
+        signals.append("Price aligned with trend (0)")
+    
+    # 2. Momentum Signal (±2 points)
+    # Rate of change in Kalman filter
+    kalman_momentum = (filtered.iloc[-1] - filtered.iloc[-20]) / filtered.iloc[-20] * 100
+    
+    if kalman_momentum > 5:
+        score += 2
+        signals.append("Strong upward Kalman momentum (+2)")
+    elif kalman_momentum > 2:
+        score += 1
+        signals.append("Moderate upward momentum (+1)")
+    elif kalman_momentum < -5:
+        score -= 2
+        signals.append("Strong downward Kalman momentum (-2)")
+    elif kalman_momentum < -2:
+        score -= 1
+        signals.append("Moderate downward momentum (-1)")
+    else:
+        signals.append("Neutral momentum (0)")
+    
+    # 3. Prediction Signal (±1 point)
+    # One-step-ahead forecast
+    prediction_change = (prediction - current_price) / current_price * 100
+    
+    if prediction_change > 1:
+        score += 1
+        signals.append("Kalman predicts upward move (+1)")
+    elif prediction_change < -1:
+        score -= 1
+        signals.append("Kalman predicts downward move (-1)")
+    else:
+        signals.append("Kalman predicts sideways (0)")
+    
+    # Determine action
+    if score >= 4:
+        action = "Strong Buy"
+    elif score >= 2:
+        action = "Buy"
+    elif score <= -4:
+        action = "Strong Sell"
+    elif score <= -2:
+        action = "Sell"
+    else:
+        action = "Hold"
+    
+    # Calculate confidence based on prediction interval width
+    confidence_width = prediction_std * 2
+    confidence = max(20, min(100, 100 - (confidence_width / current_price * 100 * 10)))
+    
+    return {
+        'action': action,
+        'score': score,
+        'confidence': confidence,
+        'signals': signals,
+        'filtered_price': filtered.iloc[-1],
+        'prediction': prediction,
+        'prediction_std': prediction_std
+    }
 
 def calculate_support_resistance(prices, window=20):
     """
@@ -344,10 +513,55 @@ def generate_trading_signal(prices, ticker=None):
     all_signals = trend_signals + momentum_signals + extreme_signals
     
     # =============================================================================
+    # KALMAN FILTER INTEGRATION (V4.1 Enhancement)
+    # =============================================================================
+    
+    kalman_signal = None
+    kalman_agreement = None
+    signal_conflict = False
+    
+    if KALMAN_AVAILABLE and len(prices) >= 100:
+        try:
+            # Calculate Kalman filter
+            kalman_data = calculate_kalman_filter(prices)
+            
+            if kalman_data is not None:
+                # Generate Kalman-based signal
+                kalman_signal = generate_kalman_signal(prices, kalman_data)
+                
+                if kalman_signal:
+                    # Normalize actions for comparison
+                    sma_action = action.upper()
+                    kalman_action = kalman_signal['action'].upper()
+                    
+                    # Check if signals agree
+                    sma_is_bullish = 'BUY' in sma_action or (sma_action == 'HOLD' and total_score > 0)
+                    sma_is_bearish = 'SELL' in sma_action or (sma_action == 'HOLD' and total_score < 0)
+                    kalman_is_bullish = 'BUY' in kalman_action
+                    kalman_is_bearish = 'SELL' in kalman_action
+                    
+                    if (sma_is_bullish and kalman_is_bullish) or (sma_is_bearish and kalman_is_bearish):
+                        kalman_agreement = "✅ ALIGNED"
+                        signal_conflict = False
+                    elif (sma_is_bullish and kalman_is_bearish) or (sma_is_bearish and kalman_is_bullish):
+                        kalman_agreement = "⚠️ CONFLICT"
+                        signal_conflict = True
+                    else:
+                        kalman_agreement = "⚪ MIXED"
+                        signal_conflict = False
+                    
+        except Exception as e:
+            # Log error for debugging but don't crash
+            # In production, Kalman is enhancement, not critical
+            import sys
+            if hasattr(sys, 'stderr'):
+                print(f"Kalman filter error for {ticker}: {str(e)}", file=sys.stderr)
+    
+    # =============================================================================
     # RETURN RESULTS
     # =============================================================================
     
-    return {
+    result = {
         'signal': signal,
         'action': action,
         'score': round(total_score, 1),
@@ -361,6 +575,14 @@ def generate_trading_signal(prices, ticker=None):
         'price_vs_sma50': ((current_price / sma_50.iloc[-1]) - 1) * 100 if not pd.isna(sma_50.iloc[-1]) else None,
         'price_vs_sma200': ((current_price / sma_200.iloc[-1]) - 1) * 100 if not pd.isna(sma_200.iloc[-1]) else None
     }
+    
+    # Add Kalman signal if available
+    if kalman_signal is not None:
+        result['kalman_signal'] = kalman_signal
+        result['kalman_agreement'] = kalman_agreement
+        result['signal_conflict'] = signal_conflict
+    
+    return result
 
 
 # =============================================================================

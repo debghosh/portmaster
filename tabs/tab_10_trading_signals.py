@@ -29,226 +29,300 @@ def render(tab10, portfolio_returns, prices, weights, tickers, metrics, current)
     
     with tab10:
         st.markdown("# 🚦 Trading Signals")
-        st.markdown("Multi-indicator trading signals with actionable recommendations")
+        st.markdown("**Your Portfolio:** Actionable recommendations with dual signal confirmation")
+        
+        # Check Kalman filter availability
+        from helper_functions import KALMAN_AVAILABLE
+        
+        if KALMAN_AVAILABLE:
+            st.success("🔬 **Kalman Filter Active:** Dual-signal system provides higher confidence recommendations")
+        else:
+            st.warning("⚠️ **Kalman Filter Unavailable:** Install with `pip install pykalman` for dual-signal confirmation")
+        
         st.markdown("---")
         
         if 'prices' in current:
             prices = current['prices']
             tickers = current['tickers']
+            weights = current['weights']
             
-            # Generate signals for all tickers
-            signals_data = []
+            st.markdown("### 🎯 Your Portfolio Holdings - Actionable Signals")
             
+            # Generate detailed signals for portfolio tickers
             for ticker in tickers:
                 if ticker in prices.columns:
-                    # Pass ticker parameter for bond detection
+                    # Get comprehensive signal
                     signal = generate_trading_signal(prices[ticker], ticker)
                     
-                    # Normalize the action
-                    normalized_action = normalize_action(signal['action'])
+                    # Extract data
+                    sma_action = normalize_action(signal['action'])
+                    sma_score = signal['score']
+                    confidence = signal['confidence']
+                    current_price = prices[ticker].iloc[-1]
+                    weight = weights.get(ticker, 0) * 100
                     
-                    # Defensive: ensure signals is a list
-                    sig_list = signal.get('signals', [])
-                    if isinstance(sig_list, str):
-                        sig_list = [sig_list]
-                    elif not isinstance(sig_list, list):
-                        sig_list = []
+                    # Get Kalman signal if available
+                    kalman_signal = signal.get('kalman_signal')
+                    kalman_agreement = signal.get('kalman_agreement', '')
                     
-                    # Join first 3 signals
-                    key_signals_text = ', '.join(sig_list[:3]) if sig_list else 'N/A'
-                    
-                    signals_data.append({
-                        'Ticker': ticker,
-                        'Signal': signal['signal'],
-                        'Action': normalized_action,
-                        'Confidence': f"{signal['confidence']:.0f}%",
-                        'Score': signal['score'],
-                        'RSI': f"{signal['rsi']:.1f}" if signal.get('rsi') and not pd.isna(signal['rsi']) else 'N/A',
-                        'Key Signals': key_signals_text
-                    })
-            
-            # Display as table
-            signals_df = pd.DataFrame(signals_data)
-            
-            # Style the table
-            def style_signal(row):
-                if 'STRONG BUY' in row['Signal'] or 'BUY' in row['Signal']:
-                    return ['background-color: #d4edda']*len(row)
-                elif 'STRONG SELL' in row['Signal'] or 'SELL' in row['Signal']:
-                    return ['background-color: #f8d7da']*len(row)
-                else:
-                    return ['background-color: #fff3cd']*len(row)
-            
-            styled_signals = signals_df.style.apply(style_signal, axis=1)
-            st.dataframe(
-                styled_signals,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Score": st.column_config.NumberColumn(
-                        "Score",
-                        help="**Score Range: -6 to +6**\n\n"
-                            "Components:\n"
-                            "• Trend: ±3 (most important)\n"
-                            "• Momentum: ±2 (confirms trend)\n"
-                            "• Extremes: ±1 (timing)\n\n"
-                            "Thresholds:\n"
-                            "• ≥4: STRONG BUY\n"
-                            "• ≥2: BUY\n"
-                            "• -2 to +2: HOLD\n"
-                            "• ≤-2: SELL\n"
-                            "• ≤-4: STRONG SELL"
-                    ),
-                    "Confidence": st.column_config.TextColumn(
-                        "Confidence",
-                        help="**How Confidence is Calculated:**\n\n"
-                            "Base = |Score| × 15%\n"
-                            "Agreement Bonus = +10% if all indicators agree\n"
-                            "Total = Base + Bonus (max 100%)\n\n"
-                            "**Interpretation:**\n"
-                            "• 80-100%: High conviction\n"
-                            "• 60-79%: Moderate conviction\n"
-                            "• 40-59%: Low conviction\n"
-                            "• <40%: Very low conviction"
-                    )
-                }
-            )
-            
-            # Detailed breakdown for each ticker
-            st.markdown("---")
-            st.markdown("## 📊 Detailed Analysis")
-            
-            for ticker in tickers:
-                if ticker in prices.columns:
-                    with st.expander(f"**{ticker}** - Detailed Technical Analysis"):
-                        signal = generate_trading_signal(prices[ticker],ticker)
-                        col1, col2, col3 = st.columns(3)
+                    # Create expander for each ticker
+                    with st.expander(f"**{ticker}** ({weight:.1f}% of portfolio) - ${current_price:.2f}", expanded=True):
                         
-                        # COLUMN 1: Signal, Confidence, then Key Signals below
+                        # Top row: Signals comparison
+                        col1, col2, col3 = st.columns([2, 2, 3])
+                        
                         with col1:
-                            if 'BUY' in signal['signal']:
-                                st.success(f"**{signal['signal']}**")
-                            elif 'SELL' in signal['signal']:
-                                st.error(f"**{signal['signal']}**")
+                            st.markdown("**📊 SMA Signal**")
+                            if sma_score >= 4:
+                                emoji = "🟢🟢"
+                                color = "green"
+                            elif sma_score >= 2:
+                                emoji = "🟢"
+                                color = "green"
+                            elif sma_score <= -4:
+                                emoji = "🔴🔴"
+                                color = "red"
+                            elif sma_score <= -2:
+                                emoji = "🔴"
+                                color = "red"
                             else:
-                                st.info(f"**{signal['signal']}**")
+                                emoji = "🟡"
+                                color = "orange"
                             
-                            conf_help = (
-                                "**How Confidence is Calculated:**\n\n"
-                                "Base = |Score| × 15%\n"
-                                "Agreement Bonus = +10% if all indicators agree\n"
-                                "Total = Base + Bonus (max 100%)\n\n"
-                                "**Interpretation:**\n"
-                                "• 80-100%: High conviction\n"
-                                "• 60-79%: Moderate conviction\n"
-                                "• 40-59%: Low conviction\n"
-                                "• <40%: Very low conviction"
-                            )
-                            st.metric("Confidence", f"{signal['confidence']:.0f}%", help=conf_help)
-                            
-                            # Key Signals below Confidence
-                            st.markdown("---")
-                            st.markdown("**Key Signals:**")
-                            signal_list = signal.get('signals', [])
-                            if isinstance(signal_list, str):
-                                signal_list = [signal_list]
-                            elif not isinstance(signal_list, list):
-                                signal_list = []
-                            
-                            if signal_list:
-                                for sig in signal_list:
-                                    st.markdown(f"• {sig}")
-                            else:
-                                st.markdown("• No signals available")
+                            st.markdown(f":{color}[{emoji} **{sma_action}** (Score: {sma_score:+.1f})]")
+                            st.caption(f"Confidence: {confidence:.0f}%")
                         
-                        # COLUMN 2: Score, RSI, then Score Breakdown below
                         with col2:
-                            score_help = (
-                                "**Score Range: -6 to +6**\n\n"
-                                "**Components:**\n"
-                                "• Trend: ±3 points (most important)\n"
-                                "• Momentum: ±2 points (confirms trend)\n"
-                                "• Extremes: ±1 point (timing)\n\n"
-                                "**Thresholds:**\n"
-                                "• ≥4: STRONG BUY\n"
-                                "• ≥2: BUY\n"
-                                "• -2 to +2: HOLD\n"
-                                "• ≤-2: SELL\n"
-                                "• ≤-4: STRONG SELL"
-                            )
-                            st.metric("Score", signal['score'], help=score_help)
-                            
-                            rsi_help = "Relative Strength Index (0-100)\n• <30: Oversold\n• >70: Overbought\n• 40-60: Neutral"
-                            st.metric(
-                                "RSI",
-                                f"{signal['rsi']:.1f}" if signal.get('rsi') and not pd.isna(signal['rsi']) else 'N/A',
-                                help=rsi_help
-                            )
-                            
-                            # Score Breakdown below RSI
-                            st.markdown("---")
-                            st.markdown("**📊 Score Breakdown:**")
-                            
-                            if 'score_breakdown' in signal and signal.get('score', 0) != 0:
-                                sb = signal['score_breakdown']
+                            st.markdown("**🔬 Kalman Signal**")
+                            if kalman_signal:
+                                k_action = kalman_signal['action']
+                                k_score = kalman_signal['score']
+                                k_conf = kalman_signal['confidence']
                                 
-                                st.markdown(f"**Trend:** {sb.get('trend', 0):+.1f} *(max ±3)*")
-                                st.markdown(f"**Momentum:** {sb.get('momentum', 0):+.1f} *(max ±2)*")
-                                st.markdown(f"**Extremes:** {sb.get('extremes', 0):+.2f} *(max ±1)*")
-                                st.markdown(f"**Total:** {sb.get('total', 0):+.1f}")
-                                
-                                st.markdown("")
-                                st.caption("**How Calculated:**")
-                                if 'computation' in sb:
-                                    for comp in sb['computation'][:3]:
-                                        st.caption(f"• {comp}")
-                                
-                                st.caption(f"**Formula:** {sb.get('formula', 'N/A')}")
-                            else:
-                                st.info("N/A for bonds")
-                        
-                        # COLUMN 3: Action, vs 200 SMA, then Confidence Breakdown below
-                        with col3:
-                            st.metric("Action", signal['action'])
-                            
-                            if signal.get('price_vs_sma200') is not None:
-                                sma_help = "Price distance from 200-day moving average\n• Positive: Above (bullish)\n• Negative: Below (bearish)"
-                                st.metric("vs 200 SMA", f"{signal['price_vs_sma200']:+.2f}%", help=sma_help)
-                            
-                            # Confidence Breakdown below vs 200 SMA
-                            st.markdown("---")
-                            st.markdown("**🎯 Confidence:**")
-                            
-                            if 'confidence_breakdown' in signal:
-                                cb = signal['confidence_breakdown']
-                                
-                                st.markdown(f"**Base:** {cb.get('base', 0):.0f}%")
-                                st.markdown(f"**Bonus:** +{cb.get('agreement_bonus', 0)}%")
-                                st.markdown(f"**Total:** {cb.get('total', 0):.0f}%")
-                                
-                                st.markdown("")
-                                st.caption(f"**Formula:** {cb.get('formula', 'N/A')}")
-                                
-                                # Interpretation
-                                total = cb.get('total', 0)
-                                if total >= 80:
-                                    st.caption("🟢 High conviction")
-                                elif total >= 60:
-                                    st.caption("🟡 Moderate conviction")
-                                elif total >= 40:
-                                    st.caption("🟠 Low conviction")
+                                # Decode action
+                                if 'Strong Buy' in k_action:
+                                    k_emoji = "🟢🟢"
+                                    k_color = "green"
+                                    k_short = "Strong Buy"
+                                elif 'Buy' in k_action:
+                                    k_emoji = "🟢"
+                                    k_color = "green"
+                                    k_short = "Buy"
+                                elif 'Strong Sell' in k_action:
+                                    k_emoji = "🔴🔴"
+                                    k_color = "red"
+                                    k_short = "Strong Sell"
+                                elif 'Sell' in k_action:
+                                    k_emoji = "🔴"
+                                    k_color = "red"
+                                    k_short = "Sell"
                                 else:
-                                    st.caption("🔴 Very low conviction")
+                                    k_emoji = "🟡"
+                                    k_color = "orange"
+                                    k_short = "Hold"
                                 
-                                # Show bond reasoning if applicable
-                                if 'reasoning' in signal and signal.get('score', 0) == 0:
-                                    st.markdown("")
-                                    st.caption("**Why:**")
-                                    for reason in signal.get('reasoning', [])[:3]:
-                                        st.caption(f"• {reason}")
+                                st.markdown(f":{k_color}[{k_emoji} **{k_short}** (Score: {k_score:+d})]")
+                                st.caption(f"Confidence: {k_conf:.0f}%")
                             else:
-                                st.info("N/A")
-        else:
+                                st.markdown("*Not available*")
+                                st.caption("Need 100+ days data")
+                        
+                        with col3:
+                            st.markdown("**🎯 Agreement**")
+                            if kalman_agreement:
+                                if "ALIGNED" in kalman_agreement:
+                                    st.markdown(f":green[✅ **ALIGNED** - High Conviction]")
+                                    st.caption("Both signals agree → Trust this signal")
+                                elif "CONFLICT" in kalman_agreement:
+                                    st.markdown(f":orange[⚠️ **CONFLICT** - Caution]")
+                                    st.caption("Signals disagree → Wait for clarity")
+                                else:
+                                    st.markdown(f":gray[⚪ **MIXED** - Lower Conviction]")
+                                    st.caption("Partial agreement → Monitor")
+                            else:
+                                st.markdown("*SMA only*")
+                        
+                        # Actionable Recommendation
+                        st.markdown("---")
+                        st.markdown("**💡 Actionable Recommendation:**")
+                        
+                        # Generate recommendation based on signals
+                        if kalman_signal and "ALIGNED" in kalman_agreement:
+                            # Both agree - high conviction
+                            if sma_score >= 4 and k_score >= 3:
+                                st.success(f"""
+                                **🚀 STRONG BUY OPPORTUNITY**
+                                
+                                **Action:** Consider adding to your {ticker} position
+                                - Both signals strongly bullish (SMA: {sma_score:+.1f}, Kalman: {k_score:+d})
+                                - High confidence: SMA {confidence:.0f}%, Kalman {k_conf:.0f}%
+                                - Currently {weight:.1f}% of portfolio
+                                
+                                **Suggestion:** If you want more {ticker} exposure, this is a good entry point.
+                                """)
+                            elif sma_score >= 2 and k_score >= 1:
+                                st.info(f"""
+                                **📈 BUY SIGNAL**
+                                
+                                **Action:** Good time to hold or add modestly to {ticker}
+                                - Both signals bullish (SMA: {sma_score:+.1f}, Kalman: {k_score:+d})
+                                - Moderate confidence
+                                - Currently {weight:.1f}% of portfolio
+                                
+                                **Suggestion:** Maintain current allocation or add slightly if underweight.
+                                """)
+                            elif sma_score <= -4 and k_score <= -3:
+                                st.error(f"""
+                                **🔻 STRONG SELL SIGNAL**
+                                
+                                **Action:** Consider reducing your {ticker} position
+                                - Both signals strongly bearish (SMA: {sma_score:+.1f}, Kalman: {k_score:+d})
+                                - High confidence: SMA {confidence:.0f}%, Kalman {k_conf:.0f}%
+                                - Currently {weight:.1f}% of portfolio
+                                
+                                **Suggestion:** Trim position or exit entirely. Redeploy to stronger opportunities.
+                                """)
+                            elif sma_score <= -2 and k_score <= -1:
+                                st.warning(f"""
+                                **📉 SELL SIGNAL**
+                                
+                                **Action:** Consider reducing {ticker} exposure
+                                - Both signals bearish (SMA: {sma_score:+.1f}, Kalman: {k_score:+d})
+                                - Moderate conviction
+                                - Currently {weight:.1f}% of portfolio
+                                
+                                **Suggestion:** Reduce position size or wait for improvement before adding.
+                                """)
+                            else:
+                                st.info(f"""
+                                **➡️ HOLD**
+                                
+                                **Action:** Maintain current {ticker} position
+                                - Both signals neutral/mixed
+                                - Currently {weight:.1f}% of portfolio
+                                
+                                **Suggestion:** No action needed. Monitor for clearer signals.
+                                """)
+                        
+                        elif kalman_signal and "CONFLICT" in kalman_agreement:
+                            # Signals conflict - caution
+                            st.warning(f"""
+                            **⚠️ CONFLICTING SIGNALS - EXERCISE CAUTION**
+                            
+                            **Action:** Hold {ticker} and wait for alignment
+                            - SMA says: **{sma_action}** (Score: {sma_score:+.1f})
+                            - Kalman says: **{k_short}** (Score: {k_score:+d})
+                            - Signals disagree → Low conviction
+                            
+                            **What this means:** The market is unclear. One method sees opportunity, the other sees risk.
+                            
+                            **Suggestion:** 
+                            - **Don't buy** new positions when signals conflict
+                            - **Don't sell** existing positions yet - wait 1-2 weeks
+                            - **Monitor daily** for signal alignment
+                            - When both align (✅), act decisively
+                            
+                            **Currently {weight:.1f}% of portfolio** - maintain for now.
+                            """)
+                        
+                        else:
+                            # SMA only (no Kalman)
+                            if sma_score >= 4:
+                                st.success(f"""
+                                **📈 STRONG BUY** (SMA-only signal)
+                                
+                                **Action:** Consider adding to {ticker}
+                                - Score: {sma_score:+.1f}, Confidence: {confidence:.0f}%
+                                - Currently {weight:.1f}% of portfolio
+                                
+                                **Note:** Kalman not available. For higher conviction, use longer date range (100+ days).
+                                """)
+                            elif sma_score >= 2:
+                                st.info(f"""
+                                **📊 BUY** (SMA-only signal)
+                                
+                                **Action:** Hold or add modestly
+                                - Score: {sma_score:+.1f}, Confidence: {confidence:.0f}%
+                                
+                                **Suggestion:** Maintain or increase position slightly.
+                                """)
+                            elif sma_score <= -4:
+                                st.error(f"""
+                                **📉 STRONG SELL** (SMA-only signal)
+                                
+                                **Action:** Consider reducing {ticker}
+                                - Score: {sma_score:+.1f}, Confidence: {confidence:.0f}%
+                                
+                                **Suggestion:** Trim or exit position.
+                                """)
+                            elif sma_score <= -2:
+                                st.warning(f"""
+                                **⚠️ SELL** (SMA-only signal)
+                                
+                                **Action:** Reduce exposure
+                                - Score: {sma_score:+.1f}, Confidence: {confidence:.0f}%
+                                
+                                **Suggestion:** Lower allocation.
+                                """)
+                            else:
+                                st.info(f"""
+                                **➡️ HOLD**
+                                
+                                **Action:** Maintain position
+                                - Neutral signals
+                                
+                                **Suggestion:** No changes needed.
+                                """)
+                        
+                        # Key technical indicators (collapsed by default)
+                        with st.expander("📊 Technical Details", expanded=False):
+                            tech_col1, tech_col2 = st.columns(2)
+                            with tech_col1:
+                                rsi_val = signal.get('rsi')
+                                st.metric("RSI", f"{rsi_val:.1f}" if rsi_val is not None else "N/A")
+                                
+                                macd_val = signal.get('macd')
+                                st.metric("MACD", f"{macd_val:.3f}" if macd_val is not None else "N/A")
+                            with tech_col2:
+                                sma50_val = signal.get('price_vs_sma50')
+                                st.metric("vs SMA-50", f"{sma50_val:.1f}%" if sma50_val is not None else "N/A")
+                                
+                                sma200_val = signal.get('price_vs_sma200')
+                                st.metric("vs SMA-200", f"{sma200_val:.1f}%" if sma200_val is not None else "N/A")
+            
+            st.markdown("---")
+            
+            # Summary of portfolio
+            st.markdown("### 📋 Portfolio Summary")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            # Count signals across portfolio
+            buy_count = sum(1 for ticker in tickers if ticker in prices.columns and 
+                          normalize_action(generate_trading_signal(prices[ticker], ticker)['action']) == 'Buy')
+            hold_count = sum(1 for ticker in tickers if ticker in prices.columns and 
+                           normalize_action(generate_trading_signal(prices[ticker], ticker)['action']) == 'Hold')
+            sell_count = sum(1 for ticker in tickers if ticker in prices.columns and 
+                           normalize_action(generate_trading_signal(prices[ticker], ticker)['action']) == 'Sell')
+            
+            with col1:
+                st.metric("🟢 Buy Signals", buy_count, help="Tickers showing buy signals")
+            with col2:
+                st.metric("🟡 Hold Signals", hold_count, help="Tickers showing hold signals")
+            with col3:
+                st.metric("🔴 Sell Signals", sell_count, help="Tickers showing sell signals")
+            
+            # Overall portfolio action
+            if buy_count > sell_count and buy_count > hold_count:
+                st.success("**📈 Portfolio Outlook: BULLISH** - Majority of holdings showing buy signals")
+            elif sell_count > buy_count and sell_count > hold_count:
+                st.warning("**📉 Portfolio Outlook: BEARISH** - Majority of holdings showing sell signals")
+            else:
+                st.info("**➡️ Portfolio Outlook: NEUTRAL** - Mixed signals across holdings")
+        
+        # =============================================================================
+        # ETF UNIVERSE SIGNALS
+        # =============================================================================
             st.info("👆 Build a portfolio first to see trading signals")
         
         
@@ -416,6 +490,33 @@ def render(tab10, portfolio_returns, prices, weights, tickers, metrics, current)
                     else:
                         action_emoji, action_color = '🟡', '#ffc107'
                     
+                    # Check for Kalman signal
+                    kalman_info = ""
+                    kalman_agreement = ""
+                    
+                    # Debug: Check if Kalman is in the signal
+                    if 'kalman_signal' in signal and signal['kalman_signal'] is not None:
+                        kalman_sig = signal['kalman_signal']
+                        kalman_agreement = signal.get('kalman_agreement', '')
+                        
+                        # Create Kalman info string
+                        kalman_action = kalman_sig.get('action', 'N/A')
+                        kalman_score = kalman_sig.get('score', 0)
+                        
+                        # Format based on action
+                        if 'Buy' in kalman_action:
+                            action_letter = 'B'
+                        elif 'Sell' in kalman_action:
+                            action_letter = 'S'
+                        else:
+                            action_letter = 'H'
+                        
+                        kalman_info = f"{action_letter}{kalman_score:+d}"
+                    else:
+                        # Kalman not available - show why
+                        kalman_info = "N/A"
+                        kalman_agreement = ""
+                    
                     signals_data.append({
                         'Category': category,
                         'Ticker': ticker,
@@ -424,7 +525,9 @@ def render(tab10, portfolio_returns, prices, weights, tickers, metrics, current)
                         'Score': score,
                         'Confidence': f"{confidence:.0f}%",
                         'Price': f"${current_price:.2f}",
-                        'Action_Color': action_color
+                        'Action_Color': action_color,
+                        'Kalman': kalman_info,
+                        'Agreement': kalman_agreement
                     })
                     
                 except Exception as e:
@@ -541,10 +644,46 @@ def render(tab10, portfolio_returns, prices, weights, tickers, metrics, current)
                 
                 st.markdown(f"#### 📊 Showing {len(filtered_df)} ETFs")
                 
-                display_df = filtered_df[['Category', 'Ticker', 'Action_Display', 'Score', 'Confidence', 'Price']].copy()
-                display_df.columns = ['Category', 'Ticker', 'Signal', 'Score', 'Confidence', 'Current Price']
+                # Select columns for display
+                display_df = filtered_df[['Category', 'Ticker', 'Action_Display', 'Score', 'Confidence', 'Kalman', 'Agreement', 'Price']].copy()
+                display_df.columns = ['Category', 'Ticker', 'SMA Signal', 'Score', 'Conf%', 'Kalman', 'Agree', 'Price']
                 
                 st.dataframe(display_df, use_container_width=True, hide_index=True, height=600)
+                
+                # Kalman Filter Legend
+                st.markdown("---")
+                st.markdown("### 🔬 Understanding the Signals")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("""
+                    **SMA Signal (Traditional):**
+                    - 🟢 Buy / 🔴 Sell / 🟡 Hold
+                    - Uses SMA-50, SMA-200, RSI, MACD
+                    - Score: -6 to +6
+                    - ±2: Buy/Sell | ±4: Strong Buy/Sell
+                    """)
+                
+                with col2:
+                    st.markdown("""
+                    **Kalman Column (Advanced):**
+                    - **B** = Buy | **S** = Sell | **H** = Hold
+                    - **+3** = Score (higher = stronger)
+                    - Examples:
+                      - **B+4** = Strong Buy (bullish +4)
+                      - **S-3** = Sell (bearish -3)
+                      - **H+0** = Hold (neutral)
+                    """)
+                
+                st.markdown("""
+                **Agreement Column:**
+                - ✅ **ALIGNED** = Both signals agree → **HIGH CONFIDENCE** → Best trades
+                - ⚠️ **CONFLICT** = Signals disagree → **CAUTION** → Wait for clarity
+                - ⚪ **MIXED** = Partial agreement → **LOWER CONVICTION** → Monitor
+                
+                **💡 Pro Tip:** Focus on ✅ ALIGNED signals with high scores (±4) for best risk/reward trades.
+                """)
                 
                 # Summary
                 st.markdown("---")
